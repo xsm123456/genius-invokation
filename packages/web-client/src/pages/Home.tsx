@@ -21,7 +21,7 @@ import {
   For,
   createSignal,
   onMount,
-  createEffect,
+  onCleanup,
 } from "solid-js";
 import { Layout } from "../layouts/Layout";
 import { A, useNavigate, useSearchParams } from "@solidjs/router";
@@ -55,6 +55,20 @@ export default function Home() {
       .get("rooms")
       .then((e) => e.data.filter((r: any) => r.id !== currentRoom()?.id)),
   );
+  const ROOM_REFRESH_INTERVAL_MS = 10000;
+  let roomRefreshInterval: number | null = null;
+  onMount(() => {
+    roomRefreshInterval = setInterval(() => {
+      if (status().type !== "notLogin") {
+        refreshAllRooms();
+      }
+    }, ROOM_REFRESH_INTERVAL_MS);
+  });
+  onCleanup(() => {
+    if (typeof roomRefreshInterval === "number") {
+      clearInterval(roomRefreshInterval);
+    }
+  });
 
   const isLogin = () => {
     const { type } = status();

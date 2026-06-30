@@ -415,6 +415,9 @@ export class InitiativeSkillModel extends SkillModel {
   get ownerType(): ExEntityType {
     throw new Error("ownerType must be implemented in subclasses");
   }
+  shouldFast() {
+    return false;
+  }
 
   private buildInitiativeSkillConfig(): InitiativeSkillConfig {
     return {
@@ -422,7 +425,7 @@ export class InitiativeSkillModel extends SkillModel {
       computed$costSize: costSize(this.cost),
       computed$diceCostSize: diceCostSize(this.cost),
       gainEnergy: this.gainEnergy,
-      shouldFast: false,
+      shouldFast: this.shouldFast(),
       alwaysCharged: this.alwaysCharged,
       alwaysPlunging: this.alwaysPlunging,
       hidden: this.hidden,

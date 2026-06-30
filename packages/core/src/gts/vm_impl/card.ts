@@ -161,6 +161,10 @@ class CardModel extends InitiativeSkillModel implements ICaller {
     ];
   }
 
+  override shouldFast() {
+    return !this.tags.includes("action");
+  }
+
   getEntry(): Reserved | EntityDefinition {
     if (this.reserved) {
       return RESERVED;
@@ -174,6 +178,25 @@ class CardModel extends InitiativeSkillModel implements ICaller {
         }
       });
     }
+    this.preOperations.push(function (c) {
+      const self = c.self.cast<"support" | "equipment" | "eventCard">();
+      if (self.definition.type === "eventCard") {
+        c.dispose(self, {
+          reason: "eventCardPlayed",
+          direct: true,
+        });
+      } else {
+        // 打出时移除附属效果
+        for (const att of self.attachments) {
+          c.mutate({
+            type: "removeEntity",
+            from: c.self.area,
+            oldState: att,
+            reason: "other", // TODO: maybe better reason?
+          });
+        }
+      }
+    });
     const playSkill = this.buildSkillDefinition();
     return {
       __definition: "entities",
@@ -268,7 +291,7 @@ export const CardViewModel = InitiativeSkillViewModel
         innerMeta: InnerMeta,
       ): InnerMeta & { targetTypes: ["character"]; isInitiativeSkill: false };
     }>((model, [weaponType], subView) => {
-      model.innerModel = EntityViewModel.parse(subView, "equipment");
+      model.innerModel = EntityViewModel.parse(subView, "equipment", model.id);
       model.targetGetters = [
         function (ctx) {
           return ctx
@@ -292,7 +315,7 @@ export const CardViewModel = InitiativeSkillViewModel
         isInitiativeSkill: false;
       };
     }>((model, [], subView) => {
-      model.innerModel = EntityViewModel.parse(subView, "equipment");
+      model.innerModel = EntityViewModel.parse(subView, "equipment", model.id);
       model.targetGetters = [
         function (ctx) {
           return ctx.queryAll($.my.character).map((s) => s.latest());
@@ -336,7 +359,7 @@ export const CardViewModel = InitiativeSkillViewModel
       };
     }>((model, [who, requires = "actionSkill"], subView) => {
       model.obtainable = false;
-      model.innerModel = EntityViewModel.parse(subView, "equipment");
+      model.innerModel = EntityViewModel.parse(subView, "equipment", model.id);
       model.setTalentInfo(who, requires);
       model.setEquipmentPlayAction();
     }),
@@ -364,7 +387,7 @@ export const CardViewModel = InitiativeSkillViewModel
         innerMeta: InnerMeta,
       ): InnerMeta & { readonly targetTypes: []; isInitiativeSkill: false };
     }>((model, supportTags, subView) => {
-      model.innerModel = EntityViewModel.parse(subView, "support");
+      model.innerModel = EntityViewModel.parse(subView, "support", model.id);
       model.tags.push(...supportTags);
       model.setSupportPlayAction();
     }),

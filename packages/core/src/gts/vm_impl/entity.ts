@@ -102,7 +102,10 @@ export class EntityModel implements ICaller {
   descriptionDictionary: Writable<DescriptionDictionary> = {};
   snippets = new Map<string, SnippetOperation<any, any>>();
 
-  constructor(type: ExEntityType) {
+  constructor(type: ExEntityType, id?: number) {
+    if (typeof id === "number") {
+      this.id = id;
+    }
     this.type = type;
     if (this.type === "status" || this.type === "equipment") {
       // add default defeated dispose skill

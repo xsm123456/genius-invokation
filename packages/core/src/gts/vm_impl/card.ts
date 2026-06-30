@@ -66,12 +66,18 @@ import { TechniqueViewModel, type TechniqueVMMeta } from "./technique";
 import type { CharacterState, EntityState } from "../../builder";
 import type { IUnorderedQuery } from "../../query/utils";
 import { getSubId } from "./sub_id";
+import { RESERVED, type Reserved, type ReservedMeta } from "./reserved";
 
 const SATIATED_ID = 303300 as StatusHandle;
 
 class CardModel extends InitiativeSkillModel implements ICaller {
+  reserved = false;
   cardId!: number;
   skillType = "playCard" as const;
+
+  public get snippets() {
+    return super.snippets;
+  }
 
   type: "support" | "equipment" | "eventCard" = "eventCard";
   override get ownerType() {
@@ -155,7 +161,10 @@ class CardModel extends InitiativeSkillModel implements ICaller {
     ];
   }
 
-  getEntry(): EntityDefinition {
+  getEntry(): Reserved | EntityDefinition {
+    if (this.reserved) {
+      return RESERVED;
+    }
     const satiatedTarget = this.satiatedTarget;
     if (satiatedTarget) {
       this.postOperations.push((c) => {
@@ -171,7 +180,7 @@ class CardModel extends InitiativeSkillModel implements ICaller {
       type: this.type,
       id: this.cardId,
       tags: [...this.tags, ...(this.innerModel?.tags ?? [])] as EntityTag[],
-      obtainable: this.obtainable,
+      obtainable: this.obtainable && (this.innerModel?.obtainable ?? true),
       disableTuning: this.disableTuning,
       hintText: this.innerModel?.hintText ?? null,
       descriptionDictionary: this.innerModel?.descriptionDictionary ?? {},
@@ -211,13 +220,6 @@ type NoTargetSpecifiedThis<Meta extends CardVMMeta> = [
   ? AR.This<Meta>
   : never;
 
-type CardVMToBuilderMeta<Meta extends CardVMMeta> = {
-  callerType: Meta["type"];
-  associatedExtension: Meta["associatedExtension"];
-  callerVars: Meta["variables"];
-  eventArgType: StrictInitiativeSkillEventArg<Meta["targetTypes"]>;
-};
-
 export const CardViewModel = InitiativeSkillViewModel
   //
   .extend(CardModel, (h) => ({
@@ -226,6 +228,7 @@ export const CardViewModel = InitiativeSkillViewModel
       required(): true;
       uniqueKey(): "id";
       as<Meta extends EntityVMMeta>(this: AR.This<Meta>): HandleT<Meta["type"]>;
+      as(this: AR.This<ReservedMeta>): undefined;
     }>(
       (model, [id]) => {
         model.cardId = id;
@@ -233,14 +236,20 @@ export const CardViewModel = InitiativeSkillViewModel
       },
       (_, [id]) => id as any,
     ),
+    reserved: h.attribute<{
+      (): AR.DoneRewriteMeta<ReservedMeta>;
+    }>((model, []) => {
+      model.reserved = true;
+    }),
+    tags: h.simpleAttribute()(function (...tags: EntityTag[]) {
+      this.tags.push(...tags);
+    }),
 
     undiscoverable: h.simpleAttribute({
       uniqueKey: "obtainable",
     })(function () {
       this.obtainable = false;
     }),
-
-    // TODO: blessing, adventureSpot
 
     event: h.attribute<{
       (): AR.Done;
@@ -347,16 +356,16 @@ export const CardViewModel = InitiativeSkillViewModel
     support: h.attribute<{
       <Meta extends CardVMMeta>(
         this: NoTargetSpecifiedThis<Meta>,
-        supportType: SupportTag,
+        ...supportTags: SupportTag[]
       ): AR.With<typeof EntityViewModel, DefaultEntityVMMeta<"support">>;
       uniqueKey(): "type";
       mergeMeta<Meta extends CardVMMeta, InnerMeta extends EntityVMMeta>(
         meta: Meta,
         innerMeta: InnerMeta,
       ): InnerMeta & { readonly targetTypes: []; isInitiativeSkill: false };
-    }>((model, [supportType], subView) => {
+    }>((model, supportTags, subView) => {
       model.innerModel = EntityViewModel.parse(subView, "support");
-      model.tags.push(supportType);
+      model.tags.push(...supportTags);
       model.setSupportPlayAction();
     }),
     food: h.attribute<{
@@ -419,7 +428,11 @@ export const CardViewModel = InitiativeSkillViewModel
         }
       >;
     }>((model, [eventName], subView) => {
-      const skillModel = TriggeredSkillViewModel.parse(subView, model, eventName);
+      const skillModel = TriggeredSkillViewModel.parse(
+        subView,
+        model,
+        eventName,
+      );
       skillModel.id = model.getSubId();
       skillModel.enableHandTriggering = true;
       skillModel.enablePileTriggering = true;

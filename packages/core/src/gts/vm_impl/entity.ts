@@ -39,6 +39,7 @@ import {
   type DetailedEventArgOf,
   type DetailedEventNames,
   type SkillOperation,
+  type WritableMetaOf,
 } from "../../builder/skill";
 import {
   DEFAULT_VERSION_INFO,
@@ -51,6 +52,7 @@ import type {
   ExtensionHandle,
   HandleT,
   SkillHandle,
+  SupportHandle,
 } from "../../builder/type";
 import {
   VariablesVM,
@@ -58,9 +60,13 @@ import {
   type GtsUsageOptions,
   type GtsVariableOptions,
 } from "./variables";
-import { createVariable, createVariableCanAppend } from "../../builder/utils";
+import {
+  createVariable,
+  createVariableCanAppend,
+  type TypeHint,
+} from "../../builder/utils";
 import { TriggeredSkillModel, TriggeredSkillViewModel } from "./skill";
-import { $, DamageType, type CustomEvent } from "../../builder";
+import { $, DamageType, DiceType, type CustomEvent } from "../../builder";
 import { GlobalUsageVM, PrepareVM, NightsoulVM } from "./entity_auxilary";
 import type { CharacterPassiveSkillEntry } from "../../builder/registry";
 import type { EntityDescriptionDictionaryGetter } from "../../builder/entity";
@@ -68,18 +74,23 @@ import { GiTcgCoreInternalError, GiTcgDataError } from "../../error";
 import type { Computed } from "../../query/utils";
 import type { AttachmentTag, ModificationGetter } from "../../base/attachment";
 import { getSubId } from "./sub_id";
+import type { SkillContext } from "../../builder/internal_exports";
+import type { TypedSkillContext } from "../../builder/context/skill";
+import { RESERVED, type Reserved, type ReservedMeta } from "./reserved";
 
 export interface GtsUsageOrUsagePerRoundOptions extends GtsUsageOptions {
   perRound: boolean;
 }
 
 export class EntityModel implements ICaller {
+  reserved = false;
   usagePerRoundIndex = 0;
 
   id!: number;
   type: ExEntityType;
-  tags: string[] = [];
+  tags: ((string & {}) | EntityTag)[] = [];
   versionInfo: VersionInfo = DEFAULT_VERSION_INFO;
+  obtainable: boolean = true;
 
   varConfigs = new Map<string, VariableConfig>();
   skillList: SkillDefinition[] = [];
@@ -89,7 +100,7 @@ export class EntityModel implements ICaller {
   associatedExtensionId: number | null = null;
   hintText: string | null = null;
   descriptionDictionary: Writable<DescriptionDictionary> = {};
-  snippets = new Map<string, SkillOperation<any>>();
+  snippets = new Map<string, SnippetOperation<any, any>>();
 
   constructor(type: ExEntityType) {
     this.type = type;
@@ -166,10 +177,13 @@ export class EntityModel implements ICaller {
   }
 
   getEntry():
+    | Reserved
     | EntityDefinition
     | AttachmentDefinition
     | CharacterPassiveSkillEntry {
-    if (this.type === "character") {
+    if (this.reserved) {
+      return RESERVED;
+    } else if (this.type === "character") {
       const skills = [...this.skillList];
       return {
         __definition: "passiveSkills",
@@ -276,6 +290,10 @@ export interface ICaller {
    * @returns the name of the variable that was added
    */
   setUsage(count: number, option: GtsUsageOptions): string;
+  /**
+   * Get registered snippets of the caller.
+   */
+  snippets: ReadonlyMap<string, SnippetOperation<any, any>>;
 }
 
 export const createVariableConfig = (
@@ -305,6 +323,7 @@ export interface EntityVMMeta {
   readonly type: ExEntityType;
   readonly variables: string;
   readonly associatedExtension: ExtensionHandle;
+  readonly snippets: Record<string, unknown>;
 }
 
 // This variable is type-only but may fell into TDZ after bundling.
@@ -313,12 +332,25 @@ export var DEFAULT_ENTITY_VM_META = {
   type: "" as ExEntityType,
   variables: null as never,
   associatedExtension: null as never,
+  snippets: {},
 } as const satisfies EntityVMMeta;
 
 export type DefaultEntityVMMeta<T extends ExEntityType> =
   typeof DEFAULT_ENTITY_VM_META & {
     type: T;
   };
+
+type SnippetOperation<Meta extends EntityVMMeta, ArgT> = (
+  c: TypedSkillContext<
+    WritableMetaOf<{
+      callerType: Meta["type"];
+      associatedExtension: Meta["associatedExtension"];
+      callerVars: Meta["variables"];
+      eventArgType: ArgT;
+      gtsSnippets: Meta["snippets"];
+    }>
+  >,
+) => void;
 
 export type ThisWithType<
   Meta extends EntityVMMeta,
@@ -337,6 +369,7 @@ export const EntityViewModel = defineViewModel(
     id: h.attribute<{
       (id: number): AR.Done;
       as<Meta extends EntityVMMeta>(this: AR.This<Meta>): HandleT<Meta["type"]>;
+      as(this: AR.This<ReservedMeta>): undefined;
       required<Meta extends EntityVMMeta>(): Meta extends {
         type: "summon" | "status" | "combatStatus";
       }
@@ -349,6 +382,11 @@ export const EntityViewModel = defineViewModel(
       },
       (model, [id]) => id as any,
     ),
+    reserved: h.attribute<{
+      (): AR.DoneRewriteMeta<ReservedMeta>;
+    }>((model, []) => {
+      model.reserved = true;
+    }),
     associateExtension: h.attribute<{
       <Meta extends EntityVMMeta, NewExtT>(
         this: AR.This<Meta>,
@@ -382,6 +420,72 @@ export const EntityViewModel = defineViewModel(
     }),
     tags: h.simpleAttribute()(function (...tags: EntityTag[]) {
       this.tags.push(...tags);
+    }),
+
+    defineSnippet: h.attribute<{
+      <Meta extends EntityVMMeta>(
+        this: AR.This<Meta>,
+        operation: SnippetOperation<Meta, void>,
+      ): AR.DoneRewriteMeta<
+        Computed<
+          Omit<Meta, "snippets"> & {
+            snippets: Meta["snippets"] & { default: void };
+          }
+        >
+      >;
+      <Meta extends EntityVMMeta, const Name extends string>(
+        this: AR.This<Meta>,
+        name: Name,
+        operation: SnippetOperation<Meta, void>,
+      ): AR.DoneRewriteMeta<
+        Computed<
+          Omit<Meta, "snippets"> & {
+            snippets: Meta["snippets"] & { [K in Name]: void };
+          }
+        >
+      >;
+      <Meta extends EntityVMMeta, ArgT>(
+        this: AR.This<Meta>,
+        typeHint: TypeHint<ArgT>,
+        operation: SnippetOperation<Meta, ArgT>,
+      ): AR.DoneRewriteMeta<
+        Computed<
+          Omit<Meta, "snippets"> & {
+            snippets: Meta["snippets"] & { default: ArgT };
+          }
+        >
+      >;
+      <Meta extends EntityVMMeta, const Name extends string, ArgT>(
+        this: AR.This<Meta>,
+        name: Name,
+        typeHint: TypeHint<ArgT>,
+        operation: SnippetOperation<Meta, ArgT>,
+      ): AR.DoneRewriteMeta<
+        Computed<
+          Omit<Meta, "snippets"> & {
+            snippets: Meta["snippets"] & { [K in Name]: ArgT };
+          }
+        >
+      >;
+    }>((model, args) => {
+      let name: string;
+      let operation: SnippetOperation<any, any>;
+      if (args.length === 1) {
+        name = "default";
+        operation = args[0];
+      } else if (args.length === 2) {
+        if (typeof args[0] === "string") {
+          name = args[0];
+          operation = args[1];
+        } else {
+          name = "default";
+          operation = args[1];
+        }
+      } else {
+        name = args[0];
+        operation = args[2];
+      }
+      model.snippets.set(name, operation);
     }),
 
     prepare: h.attribute<{
@@ -511,6 +615,58 @@ export const EntityViewModel = defineViewModel(
         }
       };
       model.skillList.push(decreaseDmgSkill.buildSkillDefinition());
+    }),
+    adventureSpot: h.attribute<{
+      <Meta extends EntityVMMeta>(
+        this: ThisWithType<Meta, "support">,
+      ): AR.DoneRewriteMeta<PushVar<Meta, "exp">>;
+    }>((model, []) => {
+      model.obtainable = false;
+      model.tags.push("adventureSpot");
+      model.setVariable("exp", 1, { append: true });
+    }),
+    elementalBlessing: h.attribute<{
+      <Meta extends EntityVMMeta>(
+        this: ThisWithType<Meta, "support">,
+        type1: DiceType,
+        type2: DiceType,
+      ): AR.Done;
+    }>((model, [type1, type2]) => {
+      model.obtainable = false;
+      model.tags.push("blessing");
+      const autoPlaySkill = new TriggeredSkillModel(model, "actionPhase");
+      autoPlaySkill.enableHandTriggering = true;
+      autoPlaySkill.enablePileTriggering = true;
+      autoPlaySkill.userFilters.push(function (c) {
+        if (c.self.area.type === "supports") {
+          return false;
+        }
+        const elements = new Set(
+          c.player.characters.flatMap((ch) => ch.element()),
+        );
+        return (
+          elements.size === 2 && elements.has(type1) && elements.has(type2)
+        );
+      });
+      autoPlaySkill.action = function (c) {
+        const self = c.self.cast<"support">();
+        // 若在牌库里，先抓到手上
+        if (c.self.area.type === "pile") {
+          c.drawCards(self);
+        }
+        // 若不在手上（爆牌），就啥也别干了
+        if (c.self.area.type !== "hands") {
+          return;
+        }
+        c.disposeCard(self);
+        c.createEntity("support", self.definition.id as SupportHandle, {
+          who: c.self.area.who,
+          type: "supports",
+        });
+        c.convertDice(type1, 2);
+        c.convertDice(type2, 2);
+      };
+      model.skillList.push(autoPlaySkill.buildSkillDefinition());
     }),
 
     duration: h.attribute<{

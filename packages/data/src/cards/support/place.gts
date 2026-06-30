@@ -923,3 +923,32 @@ export const KuuvahkiExperimentalDesignBureau = card(321039)
   .drawCards(2, { withAttachment: Empowerment })
   .characterStatus(BattlePlan, "my active")
   .done();
+
+/**
+ * @id 321041
+ * @name 噩梦的预兆
+ * @description
+ * 打出及行动阶段开始时：赋予敌方手牌中1张当前元素骰费用最高的手牌费用增加，并赋予我方牌组顶的牌费用增加。
+ */
+define card {
+  id 321041 as NightmareOmen;
+  since "v6.7.0";
+  support place {
+    defineSnippet :{
+      const [oppTarget] = :maxCostHands(1, { who: "opp" });
+      if (oppTarget) {
+        :attachCostIncrease(oppTarget);
+      }
+      const myPileTop = :player.pile[0];
+      if (myPileTop) {
+        :attachCostIncrease(myPileTop);
+      }
+    }
+    on enter {
+      :callSnippet();
+    }
+    on actionPhase {
+      :callSnippet();
+    }
+  }
+}

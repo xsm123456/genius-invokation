@@ -291,6 +291,7 @@ export const CardViewModel = InitiativeSkillViewModel
         innerMeta: InnerMeta,
       ): InnerMeta & { targetTypes: ["character"]; isInitiativeSkill: false };
     }>((model, [weaponType], subView) => {
+      model.type = "equipment";
       model.innerModel = EntityViewModel.parse(subView, "equipment", model.id);
       model.targetGetters = [
         function (ctx) {
@@ -315,6 +316,7 @@ export const CardViewModel = InitiativeSkillViewModel
         isInitiativeSkill: false;
       };
     }>((model, [], subView) => {
+      model.type = "equipment";
       model.innerModel = EntityViewModel.parse(subView, "equipment", model.id);
       model.targetGetters = [
         function (ctx) {
@@ -337,7 +339,8 @@ export const CardViewModel = InitiativeSkillViewModel
         isInitiativeSkill: false;
       };
     }>((model, [], subView) => {
-      const techniqueModel = TechniqueViewModel.parse(subView);
+      model.type = "equipment";
+      const techniqueModel = TechniqueViewModel.parse(subView, model.id);
       model.innerModel = techniqueModel;
       model.targetGetters = [techniqueModel.targetGetter];
       model.tags.push("technique");
@@ -358,6 +361,7 @@ export const CardViewModel = InitiativeSkillViewModel
         isInitiativeSkill: false;
       };
     }>((model, [who, requires = "actionSkill"], subView) => {
+      model.type = "equipment";
       model.obtainable = false;
       model.innerModel = EntityViewModel.parse(subView, "equipment", model.id);
       model.setTalentInfo(who, requires);
@@ -387,6 +391,7 @@ export const CardViewModel = InitiativeSkillViewModel
         innerMeta: InnerMeta,
       ): InnerMeta & { readonly targetTypes: []; isInitiativeSkill: false };
     }>((model, supportTags, subView) => {
+      model.type = "support";
       model.innerModel = EntityViewModel.parse(subView, "support", model.id);
       model.tags.push(...supportTags);
       model.setSupportPlayAction();

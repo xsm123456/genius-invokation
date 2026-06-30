@@ -43,6 +43,9 @@ import { TechniqueNightsoulVM } from "./entity_auxilary";
 import type { DisposeEventArg } from "../../base/skill";
 
 export class TechniqueModel extends EntityModel {
+  constructor(id?: number) {
+    super("equipment", id);
+  }
   targetGetter: TargetGetter = function (ctx) {
     return ctx.queryAll($.my.character).map((s) => s.latest());
   };
@@ -145,7 +148,7 @@ export const TechniqueViewModel = EntityViewModel
       model.skillList.push(skillDef);
     }),
   }))
-  .bind<TechniqueVMMeta>("equipment");
+  .bind<TechniqueVMMeta>();
 
 class TechniqueSkillModel extends InitiativeSkillModel {
   private caller: TechniqueModel;

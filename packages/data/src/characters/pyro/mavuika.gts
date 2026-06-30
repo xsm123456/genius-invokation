@@ -159,7 +159,7 @@ define card {
       usage 2;
       :switchActive("my next");
       :convertDice(DiceType.Omni, 2);
-      if (:oppPlayer.declaredEnd) {
+      if (!:oppPlayer.declaredEnd) {
         :continueNextTurn();
       }
     }

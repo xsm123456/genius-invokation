@@ -287,6 +287,7 @@ function doMutation(state: GameState, m: Mutation): GameState {
     }
     case "changePhase": {
       return produce(state, (draft) => {
+        draft.prevPhase = state.phase;
         draft.phase = m.newPhase;
       });
     }

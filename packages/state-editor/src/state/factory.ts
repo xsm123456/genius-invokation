@@ -147,6 +147,7 @@ export function createDefaultGameState(): GameState {
     versionBehavior: getVersionBehavior(CURRENT_VERSION),
     iterators: { random: randomSeed, id: ID_START },
     phase: "action",
+    prevPhase: null,
     roundNumber: 1,
     currentTurn: 0,
     winner: null,

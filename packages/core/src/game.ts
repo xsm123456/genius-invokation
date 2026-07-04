@@ -417,12 +417,10 @@ export class Game {
             if (this.state.phase === "gameEnd") {
               return await this.gotWinner(this.state.winner);
             }
-            if (newPhase !== currentPhase) {
-              this.mutate({
-                type: "changePhase",
-                newPhase,
-              });
-            }
+            this.mutate({
+              type: "changePhase",
+              newPhase,
+            });
             this.mutate({ type: "clearRemovedEntities" });
             this.mutate({ type: "clearPhaseLogs" });
             await this.mutator.notifyAndPause({ canResume: true });

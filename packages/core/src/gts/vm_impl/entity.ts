@@ -65,7 +65,11 @@ import {
   createVariableCanAppend,
   type TypeHint,
 } from "../../builder/utils";
-import { TriggeredSkillModel, TriggeredSkillViewModel } from "./skill";
+import {
+  TriggeredSkillModel,
+  TriggeredSkillViewModel,
+  type TriggeredSkillVMMeta,
+} from "./skill";
 import { $, DamageType, DiceType, type CustomEvent } from "../../builder";
 import { GlobalUsageVM, PrepareVM, NightsoulVM } from "./entity_auxilary";
 import type { CharacterPassiveSkillEntry } from "../../builder/registry";
@@ -74,12 +78,16 @@ import { GiTcgCoreInternalError, GiTcgDataError } from "../../error";
 import type { Computed } from "../../query/utils";
 import type { AttachmentTag, ModificationGetter } from "../../base/attachment";
 import { getSubId } from "./sub_id";
-import type { SkillContext } from "../../builder/internal_exports";
 import type { TypedSkillContext } from "../../builder/context/skill";
 import { RESERVED, type Reserved, type ReservedMeta } from "./reserved";
 
 export interface GtsUsageOrUsagePerRoundOptions extends GtsUsageOptions {
   perRound: boolean;
+}
+
+export interface IParentModel {
+  id: number;
+  associatedExtensionId: number | null;
 }
 
 export class EntityModel implements ICaller {
@@ -89,7 +97,7 @@ export class EntityModel implements ICaller {
   id!: number;
   type: ExEntityType;
   tags: ((string & {}) | EntityTag)[] = [];
-  versionInfo: VersionInfo = DEFAULT_VERSION_INFO;
+  versionInfo: VersionInfo | null = null;
   obtainable: boolean = true;
 
   varConfigs = new Map<string, VariableConfig>();
@@ -102,21 +110,12 @@ export class EntityModel implements ICaller {
   descriptionDictionary: Writable<DescriptionDictionary> = {};
   snippets = new Map<string, SnippetOperation<any, any>>();
 
-  constructor(type: ExEntityType, id?: number) {
-    if (typeof id === "number") {
-      this.id = id;
+  constructor(type: ExEntityType, parent?: IParentModel) {
+    if (parent) {
+      this.id = parent.id;
+      this.associatedExtensionId = parent.associatedExtensionId;
     }
     this.type = type;
-    if (this.type === "status" || this.type === "equipment") {
-      // add default defeated dispose skill
-      const skillModel = new TriggeredSkillModel(this, "defeated");
-      skillModel.id = this.getSubId();
-      skillModel.action = function (c) {
-        c.dispose();
-      };
-      skillModel.isDefaultDefeatedDispose = true;
-      this.skillList.push(skillModel.buildSkillDefinition());
-    }
   }
 
   getSubId(): number {
@@ -143,6 +142,16 @@ export class EntityModel implements ICaller {
 
   /** Return all skills including implicit roundEnd */
   getSkills(): SkillDefinition[] {
+    if (this.type === "status" || this.type === "equipment") {
+      // add default defeated dispose skill
+      const skillModel = new TriggeredSkillModel(this, "defeated");
+      skillModel.id = this.getSubId();
+      skillModel.action = function (c) {
+        c.dispose();
+      };
+      skillModel.isDefaultDefeatedDispose = true;
+      this.skillList.unshift(skillModel.buildSkillDefinition());
+    }
     // add clean-up roundEnd skill
     const usagePerRoundNames = USAGE_PER_ROUND_VARIABLE_NAMES.filter((name) =>
       this.varConfigs.has(name),
@@ -192,7 +201,7 @@ export class EntityModel implements ICaller {
         __definition: "passiveSkills",
         type: "passiveSkill",
         id: this.id,
-        version: this.versionInfo,
+        version: this.versionInfo ?? DEFAULT_VERSION_INFO,
         skills,
         varConfigs: Object.fromEntries(this.varConfigs),
       };
@@ -203,7 +212,7 @@ export class EntityModel implements ICaller {
         id: this.id,
         visibleVarName: this.visibleVarName,
         varConfigs: Object.fromEntries(this.varConfigs),
-        version: this.versionInfo,
+        version: this.versionInfo ?? DEFAULT_VERSION_INFO,
         skills,
         modifications: this.getAttachmentModifications(),
         tags: this.tags as AttachmentTag[],
@@ -217,7 +226,7 @@ export class EntityModel implements ICaller {
         id: this.id,
         obtainable: true,
         disableTuning: false,
-        version: this.versionInfo,
+        version: this.versionInfo ?? DEFAULT_VERSION_INFO,
         visibleVarName: this.visibleVarName,
         varConfigs: Object.fromEntries(this.varConfigs),
         disposeWhenUsageIsZero: this.disposeWhenUsageIsZero,
@@ -270,7 +279,6 @@ export class EntityModel implements ICaller {
       console?.trace?.();
     }
     const autoDispose = name === "usage" && option.autoDispose !== false;
-    this.varConfigs.set(name, createVariableConfig(count, option));
     if (autoDispose) {
       if (this.type === "character" || this.type === "attachment") {
         throw new GiTcgDataError(
@@ -286,6 +294,7 @@ export class EntityModel implements ICaller {
 
 export interface ICaller {
   type: ExEntityType;
+  associatedExtensionId: number | null;
   /**
    * Add a usage-related varConfig to the caller
    * @param count initial value for the variable
@@ -338,10 +347,16 @@ export var DEFAULT_ENTITY_VM_META = {
   snippets: {},
 } as const satisfies EntityVMMeta;
 
-export type DefaultEntityVMMeta<T extends ExEntityType> =
-  typeof DEFAULT_ENTITY_VM_META & {
+export type DefaultEntityVMMeta<
+  T extends ExEntityType,
+  AssociatedExtension = never,
+> = Computed<
+  Omit<typeof DEFAULT_ENTITY_VM_META, "associatedExtension"> & {
     type: T;
-  };
+    associatedExtension: AssociatedExtension;
+  },
+  EntityVMMeta
+>;
 
 type SnippetOperation<Meta extends EntityVMMeta, ArgT> = (
   c: TypedSkillContext<
@@ -762,23 +777,37 @@ export const EntityViewModel = defineViewModel(
     }),
 
     conflictWith: h.attribute<{
-      (id: number): AR.Done;
-    }>((model, [id]) => {
-      // 自身入场时，将位于相同实体区域的目标实体移除
+      (id: number, ...otherIds: number[]): AR.Done;
+      <Meta extends EntityVMMeta>(
+        this: Meta["type"] extends "status" ? AR.This<Meta> : never,
+        mark: "crossCharacter",
+        ...otherIds: number[]
+      ): AR.Done;
+
+    }>((model, args) => {
+      // 自身入场时，将位于相同实体区域（默认）或此方所有角色（crossCharacter）上的目标实体移除
+      let conflictIds = [model.id];
+      let mode: "default" | "crossCharacter" = "default";
+      if (args[0] === "crossCharacter") {
+        mode = "crossCharacter";
+        conflictIds.push(...args.slice(1) as number[]);
+      } else {
+        conflictIds.push(...args as number[]);
+      }
       const enterSkill = new TriggeredSkillModel(model, "enter");
       enterSkill.id = model.getSubId();
-      enterSkill.userFilters.push(function (c) {
-        return c.query($.def(id as HandleT<ExEntityType>));
-      });
       enterSkill.action = function (c) {
         const selfArea = c.self.area;
-        for (const entity of c.queryAll($.def(id as HandleT<ExEntityType>))) {
+        for (const entity of c.queryAll($.union(...conflictIds.map((id) => $.def(id))))) {
+          if (entity.id === c.self.id || c.self.who !== entity.who) {
+            continue;
+          }
           const enteringArea: EntityArea = entity.area;
           if (
             enteringArea.type === "characters" &&
             selfArea.type === "characters"
           ) {
-            if (enteringArea.characterId === selfArea.characterId) {
+            if (mode === "crossCharacter" || enteringArea.characterId === selfArea.characterId) {
               entity.dispose();
             }
           } else if (enteringArea.type === selfArea.type) {
@@ -787,6 +816,16 @@ export const EntityViewModel = defineViewModel(
         }
       };
       model.skillList.push(enterSkill.buildSkillDefinition());
+    }),
+    noDefaultDispose: h.attribute<{
+      <Meta extends EntityVMMeta>(
+        this: Meta["type"] extends "status" | "equipment"
+          ? AR.This<Meta>
+          : never,
+      ): AR.Done;
+      uniqueKey(): "defaultDispose";
+    }>((model, []) => {
+      model.disposeOnMasterDefeated = false;
     }),
 
     on: h.attribute<{
@@ -810,6 +849,15 @@ export const EntityViewModel = defineViewModel(
           }
         >
       >;
+      mergeMeta<
+        Meta extends EntityVMMeta,
+        InnerMeta extends TriggeredSkillVMMeta,
+      >(
+        meta: Meta,
+        innerMeta: InnerMeta,
+      ): Omit<Meta, "variables"> & {
+        variables: Meta["variables"] | InnerMeta["variables"];
+      };
     }>((model, [eventName], subView) => {
       const skillModel = TriggeredSkillViewModel.parse(
         subView,
@@ -845,6 +893,15 @@ export const EntityViewModel = defineViewModel(
         >
       >;
       uniqueKey(): "once";
+      mergeMeta<
+        Meta extends EntityVMMeta,
+        InnerMeta extends TriggeredSkillVMMeta,
+      >(
+        meta: Meta,
+        innerMeta: InnerMeta,
+      ): Omit<Meta, "variables"> & {
+        variables: Meta["variables"] | InnerMeta["variables"];
+      };
     }>((model, [eventName], subView) => {
       const skillModel = TriggeredSkillViewModel.parse(
         subView,

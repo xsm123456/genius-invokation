@@ -19,7 +19,9 @@ import {
   EntityModel,
   EntityViewModel,
   type DefaultEntityVMMeta,
+  type EntityVMMeta,
   type GtsUsageOrUsagePerRoundOptions,
+  type IParentModel,
 } from "./entity";
 import {
   DEFAULT_INITIATIVE_SKILL_VM_META,
@@ -41,6 +43,7 @@ import type { UsagePerRoundVariableNames } from "../../base/entity";
 import { GiTcgDataError } from "../..";
 import { TechniqueNightsoulVM } from "./entity_auxilary";
 import type { DisposeEventArg } from "../../base/skill";
+import type { Computed } from "../../query/utils";
 
 class TechniqueSkillModel extends InitiativeSkillModel {
   private caller: TechniqueModel;
@@ -119,6 +122,19 @@ const DEFAULT_TECHNIQUE_SKILL_VM_META = {
   type: "equipment",
   variables: null as never,
 } as const satisfies TechniqueSkillVMMeta;
+export type DefaultTechniqueSkillVMMeta<
+  Variables extends string = never,
+  AssociatedExtension = never,
+> = Computed<
+  Omit<
+    typeof DEFAULT_TECHNIQUE_SKILL_VM_META,
+    "variables" | "associatedExtension"
+  > & {
+    variables: Variables;
+    associatedExtension: AssociatedExtension;
+  },
+  TechniqueSkillVMMeta
+>;
 
 export const TechniqueSkillViewModel = InitiativeSkillViewModel
   //
@@ -162,18 +178,23 @@ export const TechniqueSkillViewModel = InitiativeSkillViewModel
       }
     }),
   }))
-  .bind<typeof DEFAULT_TECHNIQUE_SKILL_VM_META>();
+  .bind<DefaultTechniqueSkillVMMeta>();
 
 export class TechniqueModel extends EntityModel {
-  constructor(id?: number) {
-    super("equipment", id);
+  constructor(parent?: IParentModel) {
+    super("equipment", parent);
   }
   targetGetter: TargetGetter = function (ctx) {
     return ctx.queryAll($.my.character).map((s) => s.latest());
   };
 }
 
-export type TechniqueVMMeta = DefaultEntityVMMeta<"equipment">;
+export type DefaultTechniqueVMMeta<AssociatedExtension = never> =
+  DefaultEntityVMMeta<"equipment", AssociatedExtension>;
+
+export type TechniqueVMMeta = EntityVMMeta & {
+  type: "equipment";
+};
 
 type TechniqueVMToBuilderMeta<Meta extends TechniqueVMMeta> = {
   callerType: Meta["type"];
@@ -262,12 +283,29 @@ export const TechniqueViewModel = EntityViewModel
     }),
 
     skill: h.attribute<{
-      (): AR.With<typeof TechniqueSkillViewModel>;
+      <Meta extends TechniqueVMMeta>(
+        this: AR.This<Meta>,
+      ): AR.With<
+        typeof TechniqueSkillViewModel,
+        DefaultTechniqueSkillVMMeta<
+          Meta["variables"],
+          Meta["associatedExtension"]
+        >
+      >;
       required(): true;
+      mergeMeta<
+        Meta extends TechniqueVMMeta,
+        InnerMeta extends TechniqueSkillVMMeta,
+      >(
+        meta: Meta,
+        innerMeta: InnerMeta,
+      ): Omit<Meta, "variables"> & {
+        variables: Meta["variables"] | InnerMeta["variables"];
+      };
     }>((model, [], subView) => {
       const skillModel = TechniqueSkillViewModel.parse(subView, model);
       const skillDef = skillModel.buildSkillDefinition();
       model.skillList.push(skillDef);
     }, TechniqueSkillViewModel.bind(null!)),
   }))
-  .bind<TechniqueVMMeta>();
+  .bind<DefaultTechniqueVMMeta>();

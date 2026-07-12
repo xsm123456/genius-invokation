@@ -100,7 +100,7 @@ abstract class SkillModel {
   /** skill id */
   id!: number;
 
-  versionInfo: VersionInfo = DEFAULT_VERSION_INFO;
+  versionInfo: VersionInfo | null = null;
 
   associatedExtensionId: number | null = null;
 
@@ -182,6 +182,7 @@ export class TriggeredSkillModel extends SkillModel {
     super();
     this.caller = caller;
     this.detailedEventName = detailedEventName;
+    this.associatedExtensionId = caller.associatedExtensionId;
   }
 
   override get snippets() {
@@ -388,6 +389,15 @@ export const TriggeredSkillViewModel = defineViewModel(
       }
     }),
 
+    asSkillType: h.attribute<{
+      <Meta extends TriggeredSkillVMMeta>(
+        this: Meta["type"] extends "character" ? AR.This<Meta> : never,
+        skillType: CommonSkillType,
+      ): AR.Done;
+    }>((model, [skillType]) => {
+      model.asSkillType = skillType;
+    }),
+
     "~action": h.attribute<{
       <Meta extends TriggeredSkillVMMeta>(
         this: AR.This<Meta>,
@@ -471,7 +481,7 @@ class CharacterSkillModel extends InitiativeSkillModel {
         type: "initiativeSkill",
         __definition: "initiativeSkills",
         id: this.id,
-        version: this.versionInfo,
+        version: this.versionInfo ?? DEFAULT_VERSION_INFO,
         skill: this.buildSkillDefinition(),
       };
     }
@@ -587,6 +597,12 @@ export const InitiativeSkillViewModel = defineViewModel(
       ): AR.Done;
     }>((model, [type, amount]) => {
       model.cost.set(type, amount);
+    }),
+
+    forcePlunging: h.simpleAttribute({
+      uniqueKey: "alwaysPlunging",
+    })(function () {
+      this.alwaysPlunging = true;
     }),
 
     addTarget: h.attribute<{
@@ -710,7 +726,7 @@ export const CharacterSkillViewModel = InitiativeSkillViewModel
         const passiveSkillModel = EntityViewModel.parse(
           subView,
           "character",
-          model.id,
+          model,
         );
         model.passiveSkillEntry =
           passiveSkillModel.getEntry() as CharacterPassiveSkillEntry;

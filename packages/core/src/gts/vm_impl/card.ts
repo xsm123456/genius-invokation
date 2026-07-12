@@ -54,9 +54,10 @@ import {
   TriggeredSkillModel,
   TriggeredSkillViewModel,
   type TargetGetter,
+  type TriggeredSkillVMMeta,
 } from "./skill";
 import type { SkillContext } from "../../builder/context/skill";
-import { TechniqueViewModel, type TechniqueVMMeta } from "./technique";
+import { TechniqueViewModel, type DefaultTechniqueVMMeta, type TechniqueVMMeta } from "./technique";
 import type { CharacterState, EntityState } from "../../builder";
 import type { IUnorderedQuery } from "../../query/utils";
 import { getSubId } from "./sub_id";
@@ -98,7 +99,7 @@ class CardModel extends InitiativeSkillModel implements ICaller {
   obtainable = true;
   disableTuning = false;
   tags: EntityTag[] = [];
-  versionInfo: VersionInfo = DEFAULT_VERSION_INFO;
+  versionInfo: VersionInfo | null = null;
 
   getSubId(): number {
     return getSubId(this.cardId);
@@ -217,7 +218,7 @@ class CardModel extends InitiativeSkillModel implements ICaller {
       disableTuning: this.disableTuning,
       hintText: this.innerModel?.hintText ?? null,
       descriptionDictionary: this.innerModel?.descriptionDictionary ?? {},
-      version: this.innerModel?.versionInfo ?? this.versionInfo,
+      version: this.innerModel?.versionInfo ?? this.versionInfo ?? DEFAULT_VERSION_INFO,
       visibleVarName: this.innerModel?.visibleVarName ?? null,
       varConfigs: this.innerModel
         ? Object.fromEntries(this.innerModel.varConfigs)
@@ -294,7 +295,7 @@ export const CardViewModel = InitiativeSkillViewModel
       <Meta extends CardVMMeta>(
         this: NoTargetSpecifiedThis<Meta>,
         weaponType: WeaponCardTag,
-      ): AR.With<typeof EntityViewModel, DefaultEntityVMMeta<"equipment">>;
+      ): AR.With<typeof EntityViewModel, DefaultEntityVMMeta<"equipment", Meta["associatedExtension"]>>;
       uniqueKey(): "type";
       mergeMeta<Meta extends CardVMMeta, InnerMeta extends EntityVMMeta>(
         meta: Meta,
@@ -302,7 +303,7 @@ export const CardViewModel = InitiativeSkillViewModel
       ): InnerMeta & { targetTypes: ["character"]; isInitiativeSkill: false };
     }>((model, [weaponType], subView) => {
       model.type = "equipment";
-      model.innerModel = EntityViewModel.parse(subView, "equipment", model.id);
+      model.innerModel = EntityViewModel.parse(subView, "equipment", model);
       model.targetGetters = [
         function (ctx) {
           return ctx
@@ -316,7 +317,7 @@ export const CardViewModel = InitiativeSkillViewModel
     artifact: h.attribute<{
       <Meta extends CardVMMeta>(
         this: NoTargetSpecifiedThis<Meta>,
-      ): AR.With<typeof EntityViewModel, DefaultEntityVMMeta<"equipment">>;
+      ): AR.With<typeof EntityViewModel, DefaultEntityVMMeta<"equipment", Meta["associatedExtension"]>>;
       uniqueKey(): "type";
       mergeMeta<Meta extends CardVMMeta, InnerMeta extends EntityVMMeta>(
         meta: Meta,
@@ -327,7 +328,7 @@ export const CardViewModel = InitiativeSkillViewModel
       };
     }>((model, [], subView) => {
       model.type = "equipment";
-      model.innerModel = EntityViewModel.parse(subView, "equipment", model.id);
+      model.innerModel = EntityViewModel.parse(subView, "equipment", model);
       model.targetGetters = [
         function (ctx) {
           return ctx.queryAll($.my.character).map((s) => s.latest());
@@ -339,7 +340,7 @@ export const CardViewModel = InitiativeSkillViewModel
     technique: h.attribute<{
       <Meta extends CardVMMeta>(
         this: NoTargetSpecifiedThis<Meta>,
-      ): AR.With<typeof TechniqueViewModel>;
+      ): AR.With<typeof TechniqueViewModel, DefaultTechniqueVMMeta<Meta["associatedExtension"]>>;
       uniqueKey(): "type";
       mergeMeta<Meta extends CardVMMeta, InnerMeta extends TechniqueVMMeta>(
         meta: Meta,
@@ -350,7 +351,7 @@ export const CardViewModel = InitiativeSkillViewModel
       };
     }>((model, [], subView) => {
       model.type = "equipment";
-      const techniqueModel = TechniqueViewModel.parse(subView, model.id);
+      const techniqueModel = TechniqueViewModel.parse(subView, model);
       model.innerModel = techniqueModel;
       model.targetGetters = [techniqueModel.targetGetter];
       model.tags.push("technique");
@@ -361,7 +362,7 @@ export const CardViewModel = InitiativeSkillViewModel
         this: NoTargetSpecifiedThis<Meta>,
         who: CharacterHandle | CharacterHandle[],
         requires?: TalentRequirement,
-      ): AR.With<typeof EntityViewModel, DefaultEntityVMMeta<"equipment">>;
+      ): AR.With<typeof EntityViewModel, DefaultEntityVMMeta<"equipment", Meta["associatedExtension"]>>;
       uniqueKey(): "type";
       mergeMeta<Meta extends CardVMMeta, InnerMeta extends EntityVMMeta>(
         meta: Meta,
@@ -373,7 +374,7 @@ export const CardViewModel = InitiativeSkillViewModel
     }>((model, [who, requires = "actionSkill"], subView) => {
       model.type = "equipment";
       model.obtainable = false;
-      model.innerModel = EntityViewModel.parse(subView, "equipment", model.id);
+      model.innerModel = EntityViewModel.parse(subView, "equipment", model);
       model.setTalentInfo(who, requires);
       model.setEquipmentPlayAction();
     }),
@@ -394,7 +395,7 @@ export const CardViewModel = InitiativeSkillViewModel
       <Meta extends CardVMMeta>(
         this: NoTargetSpecifiedThis<Meta>,
         ...supportTags: SupportTag[]
-      ): AR.With<typeof EntityViewModel, DefaultEntityVMMeta<"support">>;
+      ): AR.With<typeof EntityViewModel, DefaultEntityVMMeta<"support", Meta["associatedExtension"]>>;
       uniqueKey(): "type";
       mergeMeta<Meta extends CardVMMeta, InnerMeta extends EntityVMMeta>(
         meta: Meta,
@@ -402,9 +403,15 @@ export const CardViewModel = InitiativeSkillViewModel
       ): InnerMeta & { readonly targetTypes: []; isInitiativeSkill: false };
     }>((model, supportTags, subView) => {
       model.type = "support";
-      model.innerModel = EntityViewModel.parse(subView, "support", model.id);
+      model.innerModel = EntityViewModel.parse(subView, "support", model);
       model.tags.push(...supportTags);
       model.setSupportPlayAction();
+    }),
+    legend: h.simpleAttribute({
+      uniqueKey: "legend"
+    })(function () {
+      this.tags.push("legend");
+      this.userFilters.push((c) => !c.player.legendUsed);
     }),
     food: h.attribute<{
       <Meta extends CardVMMeta>(
@@ -467,6 +474,15 @@ export const CardViewModel = InitiativeSkillViewModel
           eventArgType: DetailedEventArgOf<Event>;
         }
       >;
+      mergeMeta<
+        Meta extends EntityVMMeta,
+        InnerMeta extends TriggeredSkillVMMeta,
+      >(
+        meta: Meta,
+        innerMeta: InnerMeta,
+      ): Omit<Meta, "variables"> & {
+        variables: Meta["variables"] | InnerMeta["variables"];
+      };
     }>((model, [eventName], subView) => {
       const skillModel = OffStageTriggeredSkillViewModel.parse(
         subView,
@@ -475,7 +491,6 @@ export const CardViewModel = InitiativeSkillViewModel
       );
       skillModel.id = model.getSubId();
       skillModel.enableHandTriggering = true;
-      skillModel.enablePileTriggering = skillModel.enablePileTriggering;
       const skillDef = skillModel.buildSkillDefinition();
       model.skillList.push(skillDef);
     }),

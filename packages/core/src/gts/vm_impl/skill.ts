@@ -732,6 +732,9 @@ export const CharacterSkillViewModel = InitiativeSkillViewModel
           passiveSkillModel.getEntry() as CharacterPassiveSkillEntry;
       } else {
         model.skillType = type;
+        if (type === "burst") {
+          model.gainEnergy = false;
+        }
       }
     }),
   }))

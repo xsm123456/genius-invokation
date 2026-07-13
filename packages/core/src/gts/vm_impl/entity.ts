@@ -581,7 +581,7 @@ export const EntityViewModel = defineViewModel(
     }>((model, [count], subView) => {
       const options = NightsoulVM.parse(subView);
       model.tags.push("nightsoulsBlessing");
-      model.setVariable("nightsouls", count, options);
+      model.setVariable("nightsoul", count, options);
       if (options.autoDispose) {
         const disposeSkillModel = new TriggeredSkillModel(
           model,

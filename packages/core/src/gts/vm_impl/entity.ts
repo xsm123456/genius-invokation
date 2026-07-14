@@ -581,7 +581,10 @@ export const EntityViewModel = defineViewModel(
     }>((model, [count], subView) => {
       const options = NightsoulVM.parse(subView);
       model.tags.push("nightsoulsBlessing");
-      model.setVariable("nightsoul", count, options);
+      model.setVariable("nightsoul", 0, {
+        append: { limit: count },
+        ...options,
+      });
       if (options.autoDispose) {
         const disposeSkillModel = new TriggeredSkillModel(
           model,
@@ -783,22 +786,23 @@ export const EntityViewModel = defineViewModel(
         mark: "crossCharacter",
         ...otherIds: number[]
       ): AR.Done;
-
     }>((model, args) => {
       // 自身入场时，将位于相同实体区域（默认）或此方所有角色（crossCharacter）上的目标实体移除
       let conflictIds = [model.id];
       let mode: "default" | "crossCharacter" = "default";
       if (args[0] === "crossCharacter") {
         mode = "crossCharacter";
-        conflictIds.push(...args.slice(1) as number[]);
+        conflictIds.push(...(args.slice(1) as number[]));
       } else {
-        conflictIds.push(...args as number[]);
+        conflictIds.push(...(args as number[]));
       }
       const enterSkill = new TriggeredSkillModel(model, "enter");
       enterSkill.id = model.getSubId();
       enterSkill.action = function (c) {
         const selfArea = c.self.area;
-        for (const entity of c.queryAll($.union(...conflictIds.map((id) => $.def(id))))) {
+        for (const entity of c.queryAll(
+          $.union(...conflictIds.map((id) => $.def(id))),
+        )) {
           if (entity.id === c.self.id || c.self.who !== entity.who) {
             continue;
           }
@@ -807,7 +811,10 @@ export const EntityViewModel = defineViewModel(
             enteringArea.type === "characters" &&
             selfArea.type === "characters"
           ) {
-            if (mode === "crossCharacter" || enteringArea.characterId === selfArea.characterId) {
+            if (
+              mode === "crossCharacter" ||
+              enteringArea.characterId === selfArea.characterId
+            ) {
               entity.dispose();
             }
           } else if (enteringArea.type === selfArea.type) {
